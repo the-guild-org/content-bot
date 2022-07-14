@@ -95,8 +95,8 @@ async function addItemToNotion(
   }
 }
 
-const NEWSLETTER_ACTION = "/the-guild newsletter";
-const CONTENT_ACTION = "/the-guild content";
+const NEWSLETTER_ACTION = "@theguild-content-bot newsletter";
+const CONTENT_ACTION = "@theguild-content-bot content";
 
 function isValidAction(content: string) {
   return (
