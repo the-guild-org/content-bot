@@ -10,13 +10,14 @@ const notion = new Client({
   logLevel: LogLevel.DEBUG,
 });
 
-async function addItemToNotion(title: string, url: string, content: string) {
-  const currentIssue = ((await revueClient.getCurrentIssue()) as any)[0];
-
-  console.log("currentIssue", currentIssue);
-
+async function addItemToNotion(
+  title: string,
+  url: string,
+  content: string,
+  newsletterCurrentIssueTitle: string
+) {
   try {
-    const response = await notion.pages.create({
+    await notion.pages.create({
       parent: { database_id: process.env.NOTION_DATABASE_ID! },
       properties: {
         Title: {
@@ -32,7 +33,7 @@ async function addItemToNotion(title: string, url: string, content: string) {
           rich_text: [
             {
               text: {
-                content: currentIssue.subject || "Next issue not created.",
+                content: newsletterCurrentIssueTitle,
               },
             },
           ],
@@ -88,7 +89,6 @@ async function addItemToNotion(title: string, url: string, content: string) {
         },
       },
     });
-    console.log(response);
     console.log("Success! Entry added.");
   } catch (error: any) {
     console.error(error.body);
@@ -163,10 +163,20 @@ export = (app: Probot) => {
 
       if (link && body && user && title && isValidAction(body)) {
         const [type, content] = extractContent(body, link);
+
+        const currentIssue = ((await revueClient.getCurrentIssue()) as any)[0];
+        const newsletterCurrentIssueTitle =
+          currentIssue.subject || "next newsletter issue";
+
         const issueComment = context.issue({
-          body: `@${user}, ${type} saved for the the next newsletter! ⚡️`,
+          body: `@${user}, ${type} saved for the ${newsletterCurrentIssueTitle}! ⚡️`,
         });
-        await addItemToNotion(title, link, content);
+        await addItemToNotion(
+          title,
+          link,
+          content,
+          newsletterCurrentIssueTitle
+        );
         await context.octokit.issues.createComment(issueComment);
       }
     }
