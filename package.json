@@ -5,12 +5,8 @@
   "description": "The Guild's content bot - helps us better centralized content that need to be posted on the newsletters or other mediums",
   "author": "Charly POLY",
   "license": "ISC",
-  "homepage": "https://github.com//",
-  "keywords": [
-    "probot",
-    "github",
-    "probot-app"
-  ],
+  "homepage": "https://www.the-guild.dev",
+  "keywords": [],
   "scripts": {
     "build": "tsc",
     "start": "probot run ./dist/src/index.js"
