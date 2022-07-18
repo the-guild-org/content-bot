@@ -4,18 +4,32 @@ import RevueClient from "twitter-revue-client";
 
 const revueClient = new RevueClient({ token: process.env.REVUE_API_TOKEN! });
 
+const contentTypes = ["newsletter", "content", "blog", "tweet"] as const;
+type ContentType = typeof contentTypes[number];
+
+function isValidContentType(type: string): type is ContentType {
+  return contentTypes.includes(type as any);
+}
+
 // Initializing a client
 const notion = new Client({
   auth: process.env.NOTION_TOKEN,
   logLevel: LogLevel.DEBUG,
 });
 
-async function addItemToNotion(
-  title: string,
-  url: string,
-  content: string,
-  newsletterCurrentIssueTitle: string
-) {
+async function addItemToNotion({
+  title,
+  content,
+  link,
+  contentType,
+  newsletterCurrentIssueTitle,
+}: {
+  title: string;
+  link: string;
+  content: string;
+  contentType: ContentType;
+  newsletterCurrentIssueTitle?: string;
+}) {
   try {
     await notion.pages.create({
       parent: { database_id: process.env.NOTION_DATABASE_ID! },
@@ -29,15 +43,19 @@ async function addItemToNotion(
             },
           ],
         },
-        NewsletterIssue: {
-          rich_text: [
-            {
-              text: {
-                content: newsletterCurrentIssueTitle,
+        ...(newsletterCurrentIssueTitle
+          ? {
+              NewsletterIssue: {
+                rich_text: [
+                  {
+                    text: {
+                      content: newsletterCurrentIssueTitle,
+                    },
+                  },
+                ],
               },
-            },
-          ],
-        },
+            }
+          : {}),
         AddedOn: {
           date: {
             start: new Date().toISOString(),
@@ -45,7 +63,7 @@ async function addItemToNotion(
         },
         Type: {
           select: {
-            name: "newsletter",
+            name: contentType,
           },
         },
         Status: {
@@ -55,12 +73,12 @@ async function addItemToNotion(
         },
         Content: {
           rich_text:
-            content === url
+            content === link
               ? [
                   {
                     type: "text",
                     text: {
-                      link: { url },
+                      link: { url: link },
                       content,
                     },
                   },
@@ -81,8 +99,8 @@ async function addItemToNotion(
                   {
                     type: "text",
                     text: {
-                      link: { url },
-                      content: url,
+                      link: { url: link },
+                      content: link,
                     },
                   },
                 ],
@@ -95,13 +113,15 @@ async function addItemToNotion(
   }
 }
 
-const NEWSLETTER_ACTION = "@theguild-content-bot newsletter";
-const CONTENT_ACTION = "@theguild-content-bot content";
+const ACTION_REGEX = /^\/([\w]+)\b *(.*)?$/m;
 
-function isValidAction(content: string) {
-  return (
-    content.includes(NEWSLETTER_ACTION) || content.includes(CONTENT_ACTION)
-  );
+function extractAction(content: string) {
+  const match = content.trim().match(ACTION_REGEX);
+  if (match && match[1] === process.env.BOT_USERNAME) {
+    return match[2];
+  } else {
+    return null;
+  }
 }
 
 function cleanQuoteComment(body: string) {
@@ -120,7 +140,7 @@ function extractContent(
   content: string,
   link: string
 ): [type: "comment" | "issue", content: string] {
-  const remaning = content.replace(NEWSLETTER_ACTION, "").trim();
+  const remaning = content.replace(ACTION_REGEX, "").trim();
 
   if (remaning.length === 0) {
     return ["issue", link];
@@ -161,23 +181,57 @@ export = (app: Probot) => {
           break;
       }
 
-      if (link && body && user && title && isValidAction(body)) {
-        const [type, content] = extractContent(body, link);
+      if (link && body && user && title) {
+        const contentType = extractAction(body);
 
-        const currentIssue = ((await revueClient.getCurrentIssue()) as any)[0];
-        const newsletterCurrentIssueTitle =
-          currentIssue.subject || "next newsletter issue";
+        console.log(contentType, extractAction(body));
 
-        const issueComment = context.issue({
-          body: `@${user}, ${type} saved for the ${newsletterCurrentIssueTitle}! ⚡️`,
-        });
-        await addItemToNotion(
-          title,
-          link,
-          content,
-          newsletterCurrentIssueTitle
-        );
-        await context.octokit.issues.createComment(issueComment);
+        if (!contentType) {
+          console.warn(`unable to process "${body}"`);
+          return;
+        }
+
+        if (isValidContentType(contentType)) {
+          const [type, content] = extractContent(body, link);
+
+          if (contentType === "newsletter") {
+            const currentIssue = (
+              (await revueClient.getCurrentIssue()) as any
+            )[0];
+            const newsletterCurrentIssueTitle =
+              currentIssue.subject || "next newsletter issue";
+
+            const issueComment = context.issue({
+              body: `@${user}, ${type} saved for the ${newsletterCurrentIssueTitle}! ⚡️`,
+            });
+            await addItemToNotion({
+              title,
+              link,
+              content,
+              contentType,
+              newsletterCurrentIssueTitle,
+            });
+            await context.octokit.issues.createComment(issueComment);
+          } else {
+            const issueComment = context.issue({
+              body: `@${user}, ${type} saved for the ${contentType}! ⚡️`,
+            });
+            await addItemToNotion({
+              title,
+              link,
+              content,
+              contentType,
+            });
+            await context.octokit.issues.createComment(issueComment);
+          }
+        } else {
+          const issueComment = context.issue({
+            body: `⚠️ @${user}, "${contentType}" content type is not recognized, please use one of the following: ${contentTypes.join(
+              ", "
+            )}.`,
+          });
+          await context.octokit.issues.createComment(issueComment);
+        }
       }
     }
   );
