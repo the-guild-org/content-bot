@@ -4,6 +4,8 @@ import RevueClient from "twitter-revue-client";
 
 const revueClient = new RevueClient({ token: process.env.REVUE_API_TOKEN! });
 
+const authorizedUsers = (process.env.AUTHORIZED_USERS || "").split(",");
+
 const contentTypes = ["newsletter", "content", "blog", "tweet"] as const;
 type ContentType = typeof contentTypes[number];
 
@@ -182,6 +184,10 @@ export = (app: Probot) => {
       }
 
       if (link && body && user && title) {
+        if (!authorizedUsers.includes(user)) {
+          return;
+        }
+
         const contentType = extractAction(body);
 
         console.log(contentType, extractAction(body));
