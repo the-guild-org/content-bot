@@ -23,13 +23,13 @@ async function addItemToNotion({
   title,
   content,
   link,
-  contentType,
+  contentTypes,
   newsletterCurrentIssueTitle,
 }: {
   title: string;
   link: string;
   content: string;
-  contentType: ContentType;
+  contentTypes: ContentType[];
   newsletterCurrentIssueTitle?: string;
 }) {
   try {
@@ -64,9 +64,7 @@ async function addItemToNotion({
           },
         },
         Type: {
-          select: {
-            name: contentType,
-          },
+          multi_select: contentTypes.map((ct) => ({ name: ct })),
         },
         Status: {
           select: {
@@ -117,10 +115,10 @@ async function addItemToNotion({
 
 const ACTION_REGEX = /^\/([\w]+)\b *(.*)?$/m;
 
-function extractAction(content: string) {
+function extractContentTypes(content: string): null | ContentType[] {
   const match = content.trim().match(ACTION_REGEX);
   if (match && match[1] === process.env.BOT_USERNAME) {
-    return match[2];
+    return match[2].split(" ") as ContentType[];
   } else {
     return null;
   }
@@ -188,19 +186,43 @@ export = (app: Probot) => {
           return;
         }
 
-        const contentType = extractAction(body);
+        const contentTypes = extractContentTypes(body);
 
-        console.log(contentType, extractAction(body));
+        console.log(contentTypes, extractContentTypes(body));
 
-        if (!contentType) {
+        if (!contentTypes) {
           console.warn(`unable to process "${body}"`);
           return;
         }
 
-        if (isValidContentType(contentType)) {
-          const [type, content] = extractContent(body, link);
+        let newsletterCurrentIssueTitle;
 
-          if (contentType === "newsletter") {
+        if (contentTypes.includes("newsletter")) {
+          const currentIssue = (
+            (await revueClient.getCurrentIssue()) as any
+          )[0];
+          newsletterCurrentIssueTitle =
+            currentIssue.subject || "next newsletter issue";
+        }
+
+        const [type, content] = extractContent(body, link);
+        await addItemToNotion({
+          title,
+          link,
+          content,
+          contentTypes,
+          newsletterCurrentIssueTitle,
+        });
+
+        contentTypes.forEach(async (contentType) => {
+          if (!isValidContentType(contentType)) {
+            const issueComment = context.issue({
+              body: `⚠️ @${user}, "${contentType}" content type is not recognized, please use one of the following: ${contentTypes.join(
+                ", "
+              )}.`,
+            });
+            await context.octokit.issues.createComment(issueComment);
+          } else if (contentType === "newsletter") {
             const currentIssue = (
               (await revueClient.getCurrentIssue()) as any
             )[0];
@@ -210,34 +232,14 @@ export = (app: Probot) => {
             const issueComment = context.issue({
               body: `@${user}, ${type} saved for the ${newsletterCurrentIssueTitle}! ⚡️`,
             });
-            await addItemToNotion({
-              title,
-              link,
-              content,
-              contentType,
-              newsletterCurrentIssueTitle,
-            });
             await context.octokit.issues.createComment(issueComment);
           } else {
             const issueComment = context.issue({
               body: `@${user}, ${type} saved for the ${contentType}! ⚡️`,
             });
-            await addItemToNotion({
-              title,
-              link,
-              content,
-              contentType,
-            });
             await context.octokit.issues.createComment(issueComment);
           }
-        } else {
-          const issueComment = context.issue({
-            body: `⚠️ @${user}, "${contentType}" content type is not recognized, please use one of the following: ${contentTypes.join(
-              ", "
-            )}.`,
-          });
-          await context.octokit.issues.createComment(issueComment);
-        }
+        });
       }
     }
   );
